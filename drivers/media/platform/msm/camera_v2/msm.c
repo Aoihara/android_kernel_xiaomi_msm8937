@@ -10,6 +10,8 @@
  * GNU General Public License for more details.
  */
 
+#define __NEED_MEDIA_LEGACY_API
+
 #include <linux/of.h>
 #include <linux/module.h>
 #include <linux/workqueue.h>
@@ -57,7 +59,7 @@ spinlock_t msm_pid_lock;
 #define msm_dequeue(queue, type, member) ({				\
 	unsigned long flags;					\
 	struct msm_queue_head *__q = (queue);			\
-	type *node = 0;				\
+	type *node = NULL;				\
 	spin_lock_irqsave(&__q->lock, flags);			\
 	if (!list_empty(&__q->list)) {				\
 		__q->len--;					\
@@ -73,7 +75,7 @@ spinlock_t msm_pid_lock;
 #define msm_delete_sd_entry(queue, type, member, q_node) ({		\
 	unsigned long flags;					\
 	struct msm_queue_head *__q = (queue);			\
-	type *node = 0;				\
+	type *node = NULL;				\
 	spin_lock_irqsave(&__q->lock, flags);			\
 	if (!list_empty(&__q->list)) {				\
 		list_for_each_entry(node, &__q->list, member)	\
@@ -90,7 +92,7 @@ spinlock_t msm_pid_lock;
 #define msm_delete_entry(queue, type, member, q_node) ({		\
 	unsigned long flags;					\
 	struct msm_queue_head *__q = (queue);			\
-	type *node = 0;				\
+	type *node = NULL;				\
 	spin_lock_irqsave(&__q->lock, flags);			\
 	if (!list_empty(&__q->list)) {				\
 		list_for_each_entry(node, &__q->list, member)	\
@@ -107,7 +109,7 @@ spinlock_t msm_pid_lock;
 #define msm_queue_drain(queue, type, member) do {			\
 	unsigned long flags;					\
 	struct msm_queue_head *__q = (queue);			\
-	type *node;				\
+	type *node = NULL;				\
 	spin_lock_irqsave(&__q->lock, flags);			\
 	while (!list_empty(&__q->list)) {			\
 		__q->len--;					\
@@ -126,7 +128,7 @@ typedef int (*msm_queue_func)(void *d1, void *d2);
 #define msm_queue_traverse_action(queue, type, member, func, data) do {\
 	unsigned long flags;					\
 	struct msm_queue_head *__q = (queue);			\
-	type *node = 0; \
+	type *node = NULL; \
 	msm_queue_func __f = (func); \
 	spin_lock_irqsave(&__q->lock, flags);			\
 	if (!list_empty(&__q->list)) { \
@@ -142,7 +144,7 @@ typedef int (*msm_queue_find_func)(void *d1, void *d2);
 #define msm_queue_find(queue, type, member, func, data) ({\
 	unsigned long flags;					\
 	struct msm_queue_head *__q = (queue);			\
-	type *node = 0; \
+	type *node = NULL; \
 	typeof(node) __ret = NULL; \
 	msm_queue_find_func __f = (func); \
 	spin_lock_irqsave(&__q->lock, flags);			\
@@ -150,7 +152,7 @@ typedef int (*msm_queue_find_func)(void *d1, void *d2);
 		list_for_each_entry(node, &__q->list, member) \
 		if ((__f) && __f(node, data)) { \
 			__ret = node; \
-		  break; \
+			break; \
 		} \
 	} \
 	spin_unlock_irqrestore(&__q->lock, flags); \
@@ -159,7 +161,8 @@ typedef int (*msm_queue_find_func)(void *d1, void *d2);
 
 static void msm_init_queue(struct msm_queue_head *qhead)
 {
-	BUG_ON(!qhead);
+	if (WARN_ON(!qhead))
+		return;
 
 	INIT_LIST_HEAD(&qhead->list);
 	spin_lock_init(&qhead->lock);
@@ -343,8 +346,8 @@ static inline int __msm_sd_register_subdev(struct v4l2_subdev *sd)
 	}
 
 #if defined(CONFIG_MEDIA_CONTROLLER)
-	sd->entity.info.v4l.major = VIDEO_MAJOR;
-	sd->entity.info.v4l.minor = vdev->minor;
+	sd->entity.info.dev.major = VIDEO_MAJOR;
+	sd->entity.info.dev.minor = vdev->minor;
 	sd->entity.name = video_device_node_name(vdev);
 #endif
 	sd->devnode = vdev;
@@ -805,13 +808,15 @@ static unsigned int msm_poll(struct file *f,
 	int rc = 0;
 	struct v4l2_fh *eventq = f->private_data;
 
-	BUG_ON(!eventq);
+	if (WARN_ON(!eventq))
+		goto err;
 
 	poll_wait(f, &eventq->wait, pll_table);
 
 	if (v4l2_event_pending(eventq))
 		rc = POLLIN | POLLRDNORM;
 
+err:
 	return rc;
 }
 
@@ -989,10 +994,12 @@ static inline void msm_list_switch(struct list_head *l1,
 
 static int msm_open(struct file *filep)
 {
-	int rc;
+	int rc = -1;
 	unsigned long flags;
 	struct msm_video_device *pvdev = video_drvdata(filep);
-	BUG_ON(!pvdev);
+
+	if (WARN_ON(!pvdev))
+		return rc;
 
 	/* !!! only ONE open is allowed !!! */
 	if (atomic_read(&pvdev->opened))
@@ -1024,7 +1031,7 @@ static struct v4l2_file_operations msm_fops = {
 	.open   = msm_open,
 	.poll   = msm_poll,
 	.release = msm_close,
-	.ioctl   = video_ioctl2,
+	. unlocked_ioctl   = video_ioctl2,
 #ifdef CONFIG_COMPAT
 	.compat_ioctl32 = video_ioctl2,
 #endif
@@ -1103,8 +1110,11 @@ static void msm_sd_notify(struct v4l2_subdev *sd,
 	int rc = 0;
 	struct v4l2_subdev *subdev = NULL;
 
-	BUG_ON(!sd);
-	BUG_ON(!arg);
+	if (WARN_ON(!sd))
+		return;
+
+	if (WARN_ON(!arg))
+		return;
 
 	/* Check if subdev exists before processing*/
 	if (!msm_sd_find(sd->name))
@@ -1207,7 +1217,7 @@ static int msm_probe(struct platform_device *pdev)
 			0, NULL, 0)) < 0))
 		goto entity_fail;
 
-	pvdev->vdev->entity.type = MEDIA_ENT_T_DEVNODE_V4L;
+	pvdev->vdev->entity.function = MEDIA_ENT_T_DEVNODE_V4L;
 	pvdev->vdev->entity.group_id = QCAMERA_VNODE_GROUP_ID;
 #endif
 
