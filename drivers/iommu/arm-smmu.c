@@ -4551,12 +4551,18 @@ static int arm_smmu_device_cfg_probe(struct arm_smmu_device *smmu)
 	} else {
 		size = (id >> ID2_UBS_SHIFT) & ID2_UBS_MASK;
 		smmu->va_size = arm_smmu_id_size_to_bits(size);
+
+/*
+ * Looks like mido's TZ doesn't support AARCH64 pagetable format
+*/
+#ifndef CONFIG_MACH_XIAOMI_MIDO
 		if (id & ID2_PTFS_4K)
 			smmu->features |= ARM_SMMU_FEAT_FMT_AARCH64_4K;
 		if (id & ID2_PTFS_16K)
 			smmu->features |= ARM_SMMU_FEAT_FMT_AARCH64_16K;
 		if (id & ID2_PTFS_64K)
 			smmu->features |= ARM_SMMU_FEAT_FMT_AARCH64_64K;
+#endif
 	}
 
 	/* Now we've corralled the various formats, what'll it do? */
