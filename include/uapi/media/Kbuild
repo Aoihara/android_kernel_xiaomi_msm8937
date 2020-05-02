@@ -29,5 +29,3 @@ header-y += msmb_isp.h
 header-y += msmb_qca.h
 header-y += msmb_ispif.h
 header-y += msmb_pproc.h
-header-y += radio-iris.h
-header-y += radio-iris-commands.h
